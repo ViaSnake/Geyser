@@ -1,5 +1,6 @@
 plugins {
-    application
+    id("geyser.modded-conventions")
+    id("geyser.modrinth-uploading-conventions")
 }
 
 architectury {
@@ -25,10 +26,7 @@ dependencies {
     shadow(libs.protocol.connection) { isTransitive = false }
     shadow(libs.protocol.common) { isTransitive = false }
     shadow(libs.protocol.codec) { isTransitive = false }
-    shadow(libs.mcauthlib) { isTransitive = false }
     shadow(libs.raknet) { isTransitive = false }
-
-    // Consequences of shading + relocating mcauthlib: shadow/relocate mcpl!
     shadow(libs.mcprotocollib) { isTransitive = false }
 
     // Since we also relocate cloudburst protocol: shade erosion common
@@ -38,18 +36,17 @@ dependencies {
     shadow(projects.api) { isTransitive = false }
     shadow(projects.common) { isTransitive = false }
 
-    // Permissions
-    modImplementation(libs.fabric.permissions)
-    include(libs.fabric.permissions)
+    modImplementation(libs.cloud.fabric)
+    include(libs.cloud.fabric)
+    include(libs.fabric.permissions.api)
 }
 
-application {
-    mainClass.set("org.geysermc.geyser.platform.fabric.GeyserFabricMain")
+tasks.withType<Jar> {
+    manifest.attributes["Main-Class"] = "org.geysermc.geyser.platform.fabric.GeyserFabricMain"
 }
 
 relocate("org.cloudburstmc.netty")
 relocate("org.cloudburstmc.protocol")
-relocate("com.github.steveice10.mc.auth")
 
 tasks {
     remapJar {
@@ -63,6 +60,7 @@ tasks {
 
 modrinth {
     loaders.add("fabric")
+    uploadFile.set(tasks.getByPath("remapModrinthJar"))
     dependencies {
         required.project("fabric-api")
     }

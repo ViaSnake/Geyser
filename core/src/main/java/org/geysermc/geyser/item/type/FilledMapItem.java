@@ -28,6 +28,7 @@ package org.geysermc.geyser.item.type;
 import org.cloudburstmc.protocol.bedrock.data.inventory.ItemData;
 import org.geysermc.geyser.registry.type.ItemMapping;
 import org.geysermc.geyser.registry.type.ItemMappings;
+import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.mcprotocollib.protocol.data.game.item.component.DataComponentType;
 import org.geysermc.mcprotocollib.protocol.data.game.item.component.DataComponents;
 
@@ -37,8 +38,8 @@ public class FilledMapItem extends MapItem {
     }
 
     @Override
-    public ItemData.Builder translateToBedrock(int count, DataComponents components, ItemMapping mapping, ItemMappings mappings) {
-        ItemData.Builder builder = super.translateToBedrock(count, components, mapping, mappings);
+    public ItemData.Builder translateToBedrock(GeyserSession session, int count, DataComponents components, ItemMapping mapping, ItemMappings mappings) {
+        ItemData.Builder builder = super.translateToBedrock(session, count, components, mapping, mappings);
         if (components == null) {
             // This is a fallback for maps with no nbt (Change added back in June 2020; is it needed in 2023?)
             //return builder.tag(NbtMap.builder().putInt("map", 0).build()); TODO if this is *still* broken, let's move it to translateComponentsToBedrock
@@ -51,6 +52,7 @@ public class FilledMapItem extends MapItem {
                 switch (mapColor) {
                     case 3830373 -> builder.damage(3); // Ocean Monument
                     case 5393476 -> builder.damage(4); // Woodland explorer
+                    case 12741452 -> builder.damage(14); // Trial Chamber
                 }
             }
         }

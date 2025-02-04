@@ -44,13 +44,20 @@ import org.geysermc.geyser.item.GeyserCustomMappingData;
 import org.geysermc.geyser.item.Items;
 import org.geysermc.geyser.item.components.WearableSlot;
 import org.geysermc.geyser.item.type.Item;
-import org.geysermc.geyser.network.GameProtocol;
 import org.geysermc.geyser.registry.mappings.MappingsConfigReader;
 import org.geysermc.geyser.registry.type.GeyserMappingItem;
 import org.geysermc.geyser.registry.type.ItemMapping;
 import org.geysermc.geyser.registry.type.NonVanillaItemRegistration;
+import org.geysermc.mcprotocollib.protocol.data.game.item.component.DataComponentType;
+import org.geysermc.mcprotocollib.protocol.data.game.item.component.DataComponents;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 
 public class CustomItemRegistryPopulator {
     public static void populate(Map<String, GeyserMappingItem> items, Multimap<String, CustomItemData> customItems, List<NonVanillaCustomItemData> nonVanillaCustomItems) {
@@ -128,25 +135,19 @@ public class CustomItemRegistryPopulator {
     public static NonVanillaItemRegistration registerCustomItem(NonVanillaCustomItemData customItemData, int customItemId, int protocolVersion) {
         String customIdentifier = customItemData.identifier();
 
-        Set<String> repairMaterials = customItemData.repairMaterials();
+        DataComponents components = new DataComponents(new HashMap<>());
+        components.put(DataComponentType.MAX_STACK_SIZE, customItemData.stackSize());
+        components.put(DataComponentType.MAX_DAMAGE, customItemData.maxDamage());
 
-        Item.Builder itemBuilder = Item.builder()
-                .stackSize(customItemData.stackSize())
-                .maxDamage(customItemData.maxDamage());
-        Item item = new Item(customIdentifier, itemBuilder) {
-            @Override
-            public boolean isValidRepairItem(Item other) {
-                return repairMaterials != null && repairMaterials.contains(other.javaIdentifier());
-            }
-        };
+        Item item = new Item(customIdentifier, Item.builder().components(components));
         Items.register(item, customItemData.javaId());
 
         ItemMapping customItemMapping = ItemMapping.builder()
+                .bedrockIdentifier(customIdentifier)
                 .bedrockDefinition(new SimpleItemDefinition(customIdentifier, customItemId, true))
                 .bedrockData(0)
                 .bedrockBlockDefinition(null)
                 .toolType(customItemData.toolType())
-                .toolTier(customItemData.toolTier())
                 .translationString(customItemData.translationString())
                 .customItemOptions(Collections.emptyList())
                 .javaItem(item)
@@ -168,11 +169,11 @@ public class CustomItemRegistryPopulator {
         NbtMapBuilder itemProperties = NbtMap.builder();
         NbtMapBuilder componentBuilder = NbtMap.builder();
 
-        setupBasicItemInfo(javaItem.maxDamage(), javaItem.maxStackSize(), mapping.getToolType() != null || customItemData.displayHandheld(), customItemData, itemProperties, componentBuilder, protocolVersion);
+        setupBasicItemInfo(javaItem.defaultMaxDamage(), javaItem.defaultMaxStackSize(), mapping.getToolType() != null || customItemData.displayHandheld(), customItemData, itemProperties, componentBuilder, protocolVersion);
 
         boolean canDestroyInCreative = true;
         if (mapping.getToolType() != null) { // This is not using the isTool boolean because it is not just a render type here.
-            canDestroyInCreative = computeToolProperties(mapping.getToolType(), itemProperties, componentBuilder, javaItem.attackDamage());
+            canDestroyInCreative = computeToolProperties(mapping.getToolType(), itemProperties, componentBuilder, javaItem.defaultAttackDamage());
         }
         itemProperties.putBoolean("can_destroy_in_creative", canDestroyInCreative);
 
@@ -200,7 +201,13 @@ public class CustomItemRegistryPopulator {
                     computeThrowableProperties(componentBuilder);
         }
 
-        computeRenderOffsets(false, customItemData, componentBuilder);
+        // Hardcoded on Java, and should extend to the custom item
+        boolean isHat = (javaItem.equals(Items.SKELETON_SKULL) || javaItem.equals(Items.WITHER_SKELETON_SKULL)
+                || javaItem.equals(Items.CARVED_PUMPKIN) || javaItem.equals(Items.ZOMBIE_HEAD)
+                || javaItem.equals(Items.PIGLIN_HEAD) || javaItem.equals(Items.DRAGON_HEAD)
+                || javaItem.equals(Items.CREEPER_HEAD) || javaItem.equals(Items.PLAYER_HEAD)
+        );
+        computeRenderOffsets(isHat, customItemData, componentBuilder);
 
         componentBuilder.putCompound("item_properties", itemProperties.build());
         builder.putCompound("components", componentBuilder.build());
@@ -260,18 +267,11 @@ public class CustomItemRegistryPopulator {
     }
 
     private static void setupBasicItemInfo(int maxDamage, int stackSize, boolean displayHandheld, CustomItemData customItemData, NbtMapBuilder itemProperties, NbtMapBuilder componentBuilder, int protocolVersion) {
-        NbtMap iconMap;
-        if (GameProtocol.is1_20_60orHigher(protocolVersion)) {
-            iconMap = NbtMap.builder()
-                    .putCompound("textures", NbtMap.builder()
-                            .putString("default", customItemData.icon())
-                            .build())
-                    .build();
-        } else {
-            iconMap = NbtMap.builder()
-                    .putString("texture", customItemData.icon())
-                    .build();
-        }
+        NbtMap iconMap = NbtMap.builder()
+            .putCompound("textures", NbtMap.builder()
+                    .putString("default", customItemData.icon())
+                    .build())
+            .build();
         itemProperties.putCompound("minecraft:icon", iconMap);
 
         if (customItemData.creativeCategory().isPresent()) {
@@ -427,64 +427,56 @@ public class CustomItemRegistryPopulator {
         // Make bows, tridents, and crossbows enchantable
         itemProperties.putInt("enchantable_value", 1);
 
-        if (GameProtocol.is1_20_60orHigher(protocolVersion)) {
-            componentBuilder.putCompound("minecraft:use_modifiers", NbtMap.builder()
-                    .putFloat("use_duration", 100F)
-                    .putFloat("movement_modifier", 0.35F)
-                    .build());
+        componentBuilder.putCompound("minecraft:use_modifiers", NbtMap.builder()
+                .putFloat("use_duration", 100F)
+                .putFloat("movement_modifier", 0.35F)
+                .build());
 
-            switch (mapping) {
-                case "minecraft:bow" -> {
-                    itemProperties.putString("enchantable_slot", "bow");
-                    itemProperties.putInt("frame_count", 3);
+        switch (mapping) {
+            case "minecraft:bow" -> {
+                itemProperties.putString("enchantable_slot", "bow");
+                itemProperties.putInt("frame_count", 3);
 
-                    componentBuilder.putCompound("minecraft:shooter", NbtMap.builder()
-                            .putList("ammunition", NbtType.COMPOUND, List.of(
-                                    NbtMap.builder()
-                                            .putCompound("item", NbtMap.builder()
-                                                    .putString("name", "minecraft:arrow")
-                                                    .build())
-                                            .putBoolean("use_offhand", true)
-                                            .putBoolean("search_inventory", true)
-                                            .build()
-                            ))
-                            .putFloat("max_draw_duration", 0f)
-                            .putBoolean("charge_on_draw", true)
-                            .putBoolean("scale_power_by_draw_duration", true)
-                            .build());
-                    componentBuilder.putInt("minecraft:use_duration", 999);
-                }
-                case "minecraft:trident" -> {
-                    itemProperties.putString("enchantable_slot", "trident");
-                    componentBuilder.putInt("minecraft:use_duration", 999);
-                }
-                case "minecraft:crossbow" -> {
-                    itemProperties.putString("enchantable_slot", "crossbow");
-                    itemProperties.putInt("frame_count", 10);
-
-                    componentBuilder.putCompound("minecraft:shooter", NbtMap.builder()
-                            .putList("ammunition", NbtType.COMPOUND, List.of(
-                                    NbtMap.builder()
-                                            .putCompound("item", NbtMap.builder()
-                                                    .putString("name", "minecraft:arrow")
-                                                    .build())
-                                            .putBoolean("use_offhand", true)
-                                            .putBoolean("search_inventory", true)
-                                            .build()
-                            ))
-                            .putFloat("max_draw_duration", 1f)
-                            .putBoolean("charge_on_draw", true)
-                            .putBoolean("scale_power_by_draw_duration", true)
-                            .build());
-                    componentBuilder.putInt("minecraft:use_duration", 999);
-                }
+                componentBuilder.putCompound("minecraft:shooter", NbtMap.builder()
+                        .putList("ammunition", NbtType.COMPOUND, List.of(
+                                NbtMap.builder()
+                                        .putCompound("item", NbtMap.builder()
+                                                .putString("name", "minecraft:arrow")
+                                                .build())
+                                        .putBoolean("use_offhand", true)
+                                        .putBoolean("search_inventory", true)
+                                        .build()
+                        ))
+                        .putFloat("max_draw_duration", 0f)
+                        .putBoolean("charge_on_draw", true)
+                        .putBoolean("scale_power_by_draw_duration", true)
+                        .build());
+                componentBuilder.putInt("minecraft:use_duration", 999);
             }
-        } else {
-            // ensure client moves at slow speed while charging (note: this was calculated by hand as the movement modifer value does not seem to scale linearly)
-            componentBuilder.putCompound("minecraft:chargeable", NbtMap.builder().putFloat("movement_modifier", 0.35F).build());
+            case "minecraft:trident" -> {
+                itemProperties.putString("enchantable_slot", "trident");
+                componentBuilder.putInt("minecraft:use_duration", 999);
+            }
+            case "minecraft:crossbow" -> {
+                itemProperties.putString("enchantable_slot", "crossbow");
+                itemProperties.putInt("frame_count", 10);
 
-            // keep item enchantable; also works on 1.20.50
-            itemProperties.putString("enchantable_slot", mapping.replace("minecraft:", ""));
+                componentBuilder.putCompound("minecraft:shooter", NbtMap.builder()
+                        .putList("ammunition", NbtType.COMPOUND, List.of(
+                                NbtMap.builder()
+                                        .putCompound("item", NbtMap.builder()
+                                                .putString("name", "minecraft:arrow")
+                                                .build())
+                                        .putBoolean("use_offhand", true)
+                                        .putBoolean("search_inventory", true)
+                                        .build()
+                        ))
+                        .putFloat("max_draw_duration", 1f)
+                        .putBoolean("charge_on_draw", true)
+                        .putBoolean("scale_power_by_draw_duration", true)
+                        .build());
+                componentBuilder.putInt("minecraft:use_duration", 999);
+            }
         }
     }
 

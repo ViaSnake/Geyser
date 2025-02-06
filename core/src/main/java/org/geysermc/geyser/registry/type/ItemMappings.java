@@ -25,7 +25,6 @@
 
 package org.geysermc.geyser.registry.type;
 
-import org.geysermc.mcprotocollib.protocol.data.game.item.ItemStack;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectMap;
 import lombok.Builder;
@@ -41,7 +40,7 @@ import org.geysermc.geyser.api.block.custom.CustomBlockData;
 import org.geysermc.geyser.inventory.item.StoredItemMappings;
 import org.geysermc.geyser.item.Items;
 import org.geysermc.geyser.item.type.Item;
-import org.geysermc.geyser.item.type.PotionItem;
+import org.geysermc.mcprotocollib.protocol.data.game.item.ItemStack;
 
 import java.util.List;
 import java.util.Map;
@@ -60,6 +59,7 @@ public class ItemMappings implements DefinitionRegistry<ItemDefinition> {
      * A unique exception as this is an item in Bedrock, but not in Java.
      */
     ItemMapping lodestoneCompass;
+    Int2ObjectMap<ItemMapping> lightBlocks;
 
     ItemData[] creativeItems;
     Int2ObjectMap<ItemDefinition> itemDefinitions;
@@ -137,6 +137,11 @@ public class ItemMappings implements DefinitionRegistry<ItemDefinition> {
             return lodestoneCompass;
         }
 
+        ItemMapping lightBlock = lightBlocks.get(definition.getRuntimeId());
+        if (lightBlock != null) {
+            return lightBlock;
+        }
+
         boolean isBlock = data.getBlockDefinition() != null;
         boolean hasDamage = data.getDamage() != 0;
 
@@ -148,10 +153,8 @@ public class ItemMappings implements DefinitionRegistry<ItemDefinition> {
                     }
                 } else {
                     if (!(mapping.getBedrockData() == data.getDamage() ||
-                            // Make exceptions for potions, tipped arrows, firework stars, goat horns, and suspicious stews, whose damage values can vary
-                            (mapping.getJavaItem() instanceof PotionItem || mapping.getJavaItem() == Items.ARROW
-                                    || mapping.getJavaItem() == Items.FIREWORK_STAR || mapping.getJavaItem() == Items.GOAT_HORN
-                                    || mapping.getJavaItem() == Items.SUSPICIOUS_STEW))) {
+                            // Make exceptions for items whose damage values can vary
+                            (mapping.getJavaItem().ignoreDamage() || mapping.getJavaItem() == Items.SUSPICIOUS_STEW))) {
                         continue;
                     }
                 }

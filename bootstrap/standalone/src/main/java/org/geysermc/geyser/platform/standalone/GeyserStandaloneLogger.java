@@ -33,9 +33,23 @@ import org.geysermc.geyser.GeyserImpl;
 import org.geysermc.geyser.GeyserLogger;
 import org.geysermc.geyser.command.GeyserCommandSource;
 import org.geysermc.geyser.text.ChatColor;
+import org.jline.reader.Candidate;
+import org.jline.reader.LineReader;
+import org.jline.reader.LineReaderBuilder;
 
 @Slf4j
 public class GeyserStandaloneLogger extends SimpleTerminalConsole implements GeyserLogger, GeyserCommandSource {
+
+    @Override
+    protected LineReader buildReader(LineReaderBuilder builder) {
+        builder.completer((reader, line, candidates) -> {
+            var suggestions = GeyserImpl.getInstance().commandRegistry().suggestionsFor(this, line.line());
+            for (var suggestion : suggestions.list()) {
+                candidates.add(new Candidate(suggestion.suggestion()));
+            }
+        });
+        return super.buildReader(builder);
+    }
 
     @Override
     protected boolean isRunning() {
@@ -44,7 +58,9 @@ public class GeyserStandaloneLogger extends SimpleTerminalConsole implements Gey
 
     @Override
     protected void runCommand(String line) {
-        GeyserImpl.getInstance().commandManager().runCommand(this, line);
+        // don't block the terminal!
+        GeyserImpl geyser = GeyserImpl.getInstance();
+        geyser.getScheduledThread().execute(() -> geyser.commandRegistry().runCommand(this, line));
     }
 
     @Override

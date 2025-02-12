@@ -54,7 +54,7 @@ public class JavaCustomPayloadTranslator extends PacketTranslator<ClientboundCus
 
     @Override
     public void translate(GeyserSession session, ClientboundCustomPayloadPacket packet) {
-        String channel = packet.getChannel();
+        String channel = packet.getChannel().asString();
 
         if (channel.equals(Constants.PLUGIN_MESSAGE)) {
             ByteBuf buf = Unpooled.wrappedBuffer(packet.getData());
@@ -66,6 +66,12 @@ public class JavaCustomPayloadTranslator extends PacketTranslator<ClientboundCus
         if (channel.equals(PluginMessageChannels.FORM)) {
             session.ensureInEventLoop(() -> {
                 byte[] data = packet.getData();
+
+                // If the data is empty, we just need to close the form
+                if (data.length == 0) {
+                    session.closeForm();
+                    return;
+                }
 
                 // receive: first byte is form type, second and third are the id, remaining is the form data
                 // respond: first and second byte id, remaining is form response data
@@ -92,11 +98,10 @@ public class JavaCustomPayloadTranslator extends PacketTranslator<ClientboundCus
                         System.arraycopy(raw, 0, finalData, 2, raw.length);
                     }
 
-                    session.sendDownstreamPacket(new ServerboundCustomPayloadPacket(channel, finalData));
+                    session.sendDownstreamPacket(new ServerboundCustomPayloadPacket(packet.getChannel(), finalData));
                 });
                 session.sendForm(form);
             });
-
         } else if (channel.equals(PluginMessageChannels.TRANSFER)) {
             session.ensureInEventLoop(() -> {
                 byte[] data = packet.getData();
@@ -139,11 +144,5 @@ public class JavaCustomPayloadTranslator extends PacketTranslator<ClientboundCus
                 session.sendUpstreamPacket(toSend);
             });
         }
-    }
-
-    @Override
-    public boolean shouldExecuteInEventLoop() {
-        // For Erosion packets
-        return false;
     }
 }

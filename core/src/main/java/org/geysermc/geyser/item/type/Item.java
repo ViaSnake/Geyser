@@ -25,6 +25,8 @@
 
 package org.geysermc.geyser.item.type;
 
+import com.google.common.collect.ImmutableMap;
+import net.kyori.adventure.key.Key;
 import net.kyori.adventure.text.Component;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -33,91 +35,117 @@ import org.cloudburstmc.nbt.NbtType;
 import org.cloudburstmc.protocol.bedrock.data.inventory.ItemData;
 import org.geysermc.geyser.GeyserImpl;
 import org.geysermc.geyser.inventory.GeyserItemStack;
-import org.geysermc.geyser.inventory.item.Enchantment;
+import org.geysermc.geyser.inventory.item.BedrockEnchantment;
 import org.geysermc.geyser.item.Items;
+import org.geysermc.geyser.item.enchantment.Enchantment;
+import org.geysermc.geyser.level.block.type.Block;
+import org.geysermc.geyser.registry.Registries;
 import org.geysermc.geyser.registry.type.ItemMapping;
 import org.geysermc.geyser.registry.type.ItemMappings;
 import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.text.ChatColor;
 import org.geysermc.geyser.text.MinecraftLocale;
 import org.geysermc.geyser.translator.item.BedrockItemBuilder;
-import org.geysermc.geyser.translator.item.ItemTranslator;
 import org.geysermc.geyser.translator.text.MessageTranslator;
-import org.geysermc.mcprotocollib.protocol.data.game.Identifier;
+import org.geysermc.geyser.util.MinecraftKey;
 import org.geysermc.mcprotocollib.protocol.data.game.item.component.DataComponentType;
 import org.geysermc.mcprotocollib.protocol.data.game.item.component.DataComponents;
+import org.geysermc.mcprotocollib.protocol.data.game.item.component.DyedItemColor;
 import org.geysermc.mcprotocollib.protocol.data.game.item.component.ItemEnchantments;
+import org.jetbrains.annotations.UnmodifiableView;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 public class Item {
-    /**
-     * This is a map from Java-only enchantments to their translation keys so that we can
-     * map these enchantments to Bedrock clients, since they don't actually exist there.
-     */
-    private static final Map<Enchantment.JavaEnchantment, String> ENCHANTMENT_TRANSLATION_KEYS = Map.of(
-            Enchantment.JavaEnchantment.SWEEPING_EDGE, "enchantment.minecraft.sweeping",
-            Enchantment.JavaEnchantment.DENSITY, "enchantment.minecraft.density",
-            Enchantment.JavaEnchantment.BREACH, "enchantment.minecraft.breach",
-            Enchantment.JavaEnchantment.WIND_BURST, "enchantment.minecraft.wind_burst");
-
-    private final String javaIdentifier;
+    private static final Map<Block, Item> BLOCK_TO_ITEM = new HashMap<>();
+    protected final Key javaIdentifier;
     private int javaId = -1;
-    private final int stackSize;
     private final int attackDamage;
-    private final int maxDamage;
+    private DataComponents baseComponents; // unmodifiable
 
     public Item(String javaIdentifier, Builder builder) {
-        this.javaIdentifier = Identifier.formalize(javaIdentifier).intern();
-        this.stackSize = builder.stackSize;
-        this.maxDamage = builder.maxDamage;
+        this.javaIdentifier = MinecraftKey.key(javaIdentifier);
+        if (builder.components != null) {
+            this.baseComponents = builder.components;
+        }
         this.attackDamage = builder.attackDamage;
     }
 
     public String javaIdentifier() {
-        return javaIdentifier;
+        return javaIdentifier.asString();
     }
 
     public int javaId() {
         return javaId;
     }
 
-    public int maxDamage() {
-        return maxDamage;
+    public int defaultMaxDamage() {
+        return baseComponents.getOrDefault(DataComponentType.MAX_DAMAGE, 0);
     }
 
-    public int attackDamage() {
+    public int defaultAttackDamage() {
         return attackDamage;
     }
 
-    public int maxStackSize() {
-        return stackSize;
+    public int defaultMaxStackSize() {
+        return baseComponents.getOrDefault(DataComponentType.MAX_STACK_SIZE, 1);
     }
 
-    public boolean isValidRepairItem(Item other) {
-        return false;
+    /**
+     * Returns an unmodifiable {@link DataComponents} view containing known data components.
+     * Optionally, additional components can be provided to replace (or add to)
+     * the items' base components.
+     * To add data components, use {@link GeyserItemStack#getOrCreateComponents()}.
+     */
+    @NonNull
+    @UnmodifiableView
+    public DataComponents gatherComponents(@Nullable DataComponents others) {
+        if (others == null) {
+            return baseComponents;
+        }
+
+        // Start with the base components that always exist
+        DataComponents components = baseComponents.clone();
+        // Add all additional components; these can override base components!
+        // e.g. custom stack size
+        components.getDataComponents().putAll(others.getDataComponents());
+
+        // Return an unmodified map of the merged components
+        return new DataComponents(ImmutableMap.copyOf(components.getDataComponents()));
+    }
+
+    /**
+     * Returns this items value (or null) for a specific {@link DataComponentType}.
+     * Prefer using {@link GeyserItemStack#getComponent(DataComponentType)}
+     * to also query additional components that would override the default ones.
+     */
+    @Nullable
+    public <T> T getComponent(@NonNull DataComponentType<T> type) {
+        return baseComponents.get(type);
+    }
+
+    public String translationKey() {
+        return "item." + javaIdentifier.namespace() + "." + javaIdentifier.value();
     }
 
     /* Translation methods to Bedrock and back */
 
-    public ItemData.Builder translateToBedrock(int count, DataComponents components, ItemMapping mapping, ItemMappings mappings) {
+    public ItemData.Builder translateToBedrock(GeyserSession session, int count, DataComponents components, ItemMapping mapping, ItemMappings mappings) {
         if (this == Items.AIR || count <= 0) {
             // Return, essentially, air
             return ItemData.builder();
         }
-        ItemData.Builder builder = ItemData.builder()
+
+        return ItemData.builder()
                 .definition(mapping.getBedrockDefinition())
                 .damage(mapping.getBedrockData())
                 .count(count);
-
-        ItemTranslator.translateCustomItem(components, builder, mapping);
-
-        return builder;
     }
 
-    public @NonNull GeyserItemStack translateToJava(@NonNull ItemData itemData, @NonNull ItemMapping mapping, @NonNull ItemMappings mappings) {
+    public @NonNull GeyserItemStack translateToJava(GeyserSession session, @NonNull ItemData itemData, @NonNull ItemMapping mapping, @NonNull ItemMappings mappings) {
         return GeyserItemStack.of(javaId, itemData.getCount());
     }
 
@@ -130,7 +158,7 @@ public class Item {
      */
     public void translateComponentsToBedrock(@NonNull GeyserSession session, @NonNull DataComponents components, @NonNull BedrockItemBuilder builder) {
         List<Component> loreComponents = components.get(DataComponentType.LORE);
-        if (loreComponents != null) {
+        if (loreComponents != null && components.get(DataComponentType.HIDE_TOOLTIP) == null) {
             List<String> lore = builder.getOrCreateLore();
             for (Component loreComponent : loreComponents) {
                 lore.add(MessageTranslator.convertMessage(loreComponent, session.locale()));
@@ -158,13 +186,25 @@ public class Item {
         }
 
         Integer repairCost = components.get(DataComponentType.REPAIR_COST);
-        if (repairCost != null) {
+        // Java sets repair cost to 0 on all items via default components, that trips up Bedrock crafting.
+        // See https://github.com/GeyserMC/Geyser/issues/5220 for more details
+        if (repairCost != null && repairCost != 0) {
             builder.putInt("RepairCost", repairCost);
+        }
+
+        // If the tag exists, it's unbreakable; the value is just weather to show the tooltip. As of Java 1.21
+        if (components.getDataComponents().containsKey(DataComponentType.UNBREAKABLE)) {
+            builder.putByte("Unbreakable", (byte) 1);
         }
 
         // Prevents the client from trying to stack items with untranslated components
         // Relies on correct hash code implementation, and some luck
-        builder.putInt("GeyserHash", components.hashCode()); // TODO: don't rely on this
+        // However, we should only set a hash when the components differ from the default ones,
+        // otherwise Bedrock can't stack these when crafting items since it's predicted recipe output
+        // does not contain the GeyserHash. See https://github.com/GeyserMC/Geyser/issues/5220 for more details
+        if (!baseComponents.equals(components)) {
+            builder.putInt("GeyserHash", components.hashCode()); // TODO: don't rely on this
+        }
     }
 
     /**
@@ -177,7 +217,7 @@ public class Item {
      * </ul>
      * Therefore, if translation cannot be achieved for a certain item, it is not necessarily bad.
      */
-    public void translateNbtToJava(@NonNull NbtMap bedrockTag, @NonNull DataComponents components, @NonNull ItemMapping mapping) {
+    public void translateNbtToJava(@NonNull GeyserSession session, @NonNull NbtMap bedrockTag, @NonNull DataComponents components, @NonNull ItemMapping mapping) {
         // TODO see if any items from the creative menu need this
 //        CompoundTag displayTag = tag.get("display");
 //        if (displayTag != null) {
@@ -196,60 +236,24 @@ public class Item {
 //                displayTag.put(new ListTag("Lore", lore));
 //            }
 //        }
-
-        // TODO no creative item should have enchantments *except* enchanted books
-//        List<NbtMap> enchantmentTag = bedrockTag.getList("ench", NbtType.COMPOUND);
-//        if (enchantmentTag != null) {
-//            List<Tag> enchantments = new ArrayList<>();
-//            for (Tag value : enchantmentTag.getValue()) {
-//                if (!(value instanceof CompoundTag tagValue))
-//                    continue;
-//
-//                ShortTag bedrockId = tagValue.get("id");
-//                if (bedrockId == null) continue;
-//
-//                Enchantment enchantment = Enchantment.getByBedrockId(bedrockId.getValue());
-//                if (enchantment != null) {
-//                    CompoundTag javaTag = new CompoundTag("");
-//                    Map<String, Tag> javaValue = javaTag.getValue();
-//                    javaValue.put("id", new StringTag("id", enchantment.getJavaIdentifier()));
-//                    ShortTag levelTag = tagValue.get("lvl");
-//                    javaValue.put("lvl", new IntTag("lvl", levelTag != null ? levelTag.getValue() : 1));
-//                    javaTag.setValue(javaValue);
-//
-//                    enchantments.add(javaTag);
-//                } else {
-//                    GeyserImpl.getInstance().getLogger().debug("Unknown bedrock enchantment: " + bedrockId);
-//                }
-//            }
-//            if (!enchantments.isEmpty()) {
-//                if ((this instanceof EnchantedBookItem)) {
-//                    bedrockTag.put(new ListTag("StoredEnchantments", enchantments));
-//                    components.put(DataComponentType.STORED_ENCHANTMENTS, enchantments);
-//                } else {
-//                    components.put(DataComponentType.ENCHANTMENTS, enchantments);
-//                }
-//            }
-//        }
     }
 
     protected final @Nullable NbtMap remapEnchantment(GeyserSession session, int enchantId, int level, BedrockItemBuilder builder) {
-        // TODO verify
-        // TODO streamline Enchantment process
-        Enchantment.JavaEnchantment enchantment = Enchantment.JavaEnchantment.of(enchantId);
-        String translationKey = ENCHANTMENT_TRANSLATION_KEYS.get(enchantment);
-        if (translationKey != null) {
-            String enchantmentTranslation = MinecraftLocale.getLocaleString(translationKey, session.locale());
-            addJavaOnlyEnchantment(session, builder, enchantmentTranslation, level);
-            return null;
-        }
+        Enchantment enchantment = session.getRegistryCache().enchantments().byId(enchantId);
         if (enchantment == null) {
             GeyserImpl.getInstance().getLogger().debug("Unknown Java enchantment while NBT item translating: " + enchantId);
             return null;
         }
 
+        BedrockEnchantment bedrockEnchantment = enchantment.bedrockEnchantment();
+        if (bedrockEnchantment == null) {
+            String enchantmentTranslation = MinecraftLocale.getLocaleString(enchantment.description(), session.locale());
+            addJavaOnlyEnchantment(session, builder, enchantmentTranslation, level);
+            return null;
+        }
+
         return NbtMap.builder()
-                .putShort("id", (short) Enchantment.valueOf(enchantment.name()).ordinal())
+                .putShort("id", (short) bedrockEnchantment.ordinal())
                 .putShort("lvl", (short) level)
                 .build();
     }
@@ -257,7 +261,22 @@ public class Item {
     private void addJavaOnlyEnchantment(GeyserSession session, BedrockItemBuilder builder, String enchantmentName, int level) {
         String lvlTranslation = MinecraftLocale.getLocaleString("enchantment.level." + level, session.locale());
 
-        builder.getOrCreateLore().add(ChatColor.RESET + ChatColor.GRAY + enchantmentName + " " + lvlTranslation);
+        builder.getOrCreateLore().add(0, ChatColor.RESET + ChatColor.GRAY + enchantmentName + " " + lvlTranslation);
+    }
+
+    protected final void translateDyedColor(DataComponents components, BedrockItemBuilder builder) {
+        DyedItemColor dyedItemColor = components.get(DataComponentType.DYED_COLOR);
+        if (dyedItemColor != null) {
+            builder.putInt("customColor", dyedItemColor.getRgb());
+        }
+    }
+
+    /**
+     * Override if the Bedrock equivalent of an item uses damage for extra data, and should not be tracked
+     * when translating an item.
+     */
+    public boolean ignoreDamage() {
+        return false;
     }
 
     /* Translation methods end */
@@ -271,6 +290,9 @@ public class Item {
             throw new RuntimeException("Item ID has already been set!");
         }
         this.javaId = javaId;
+        if (this.baseComponents == null) {
+            this.baseComponents = Registries.DEFAULT_DATA_COMPONENTS.get(javaId);
+        }
     }
 
     @Override
@@ -281,28 +303,34 @@ public class Item {
                 '}';
     }
 
+    /**
+     * @return the block associated with this item, or air if nothing
+     */
+    @NonNull
+    public static Item byBlock(Block block) {
+        return BLOCK_TO_ITEM.getOrDefault(block, Items.AIR);
+    }
+
+    protected static void registerBlock(Block block, Item item) {
+        BLOCK_TO_ITEM.put(block, item);
+    }
+
     public static Builder builder() {
         return new Builder();
     }
 
     public static final class Builder {
-        private int stackSize = 64;
-        private int maxDamage;
+        private DataComponents components;
         private int attackDamage;
 
-        public Builder stackSize(int stackSize) {
-            this.stackSize = stackSize;
-            return this;
-        }
-
         public Builder attackDamage(double attackDamage) {
-            // TODO properly store/send a double value once Bedrock supports it.. pls
+            // Bedrock edition does not support attack damage being a double
             this.attackDamage = (int) attackDamage;
             return this;
         }
 
-        public Builder maxDamage(int maxDamage) {
-            this.maxDamage = maxDamage;
+        public Builder components(DataComponents components) {
+            this.components = components;
             return this;
         }
 

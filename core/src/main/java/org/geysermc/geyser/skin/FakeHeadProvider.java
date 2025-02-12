@@ -25,11 +25,6 @@
 
 package org.geysermc.geyser.skin;
 
-import com.github.steveice10.mc.auth.data.GameProfile;
-import com.github.steveice10.mc.auth.data.GameProfile.Texture;
-import com.github.steveice10.mc.auth.data.GameProfile.TextureModel;
-import com.github.steveice10.mc.auth.data.GameProfile.TextureType;
-import com.github.steveice10.mc.auth.exception.property.PropertyException;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
@@ -37,6 +32,7 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.Setter;
 import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.geysermc.geyser.GeyserImpl;
 import org.geysermc.geyser.api.skin.Cape;
 import org.geysermc.geyser.api.skin.Skin;
@@ -47,8 +43,10 @@ import org.geysermc.geyser.entity.type.player.PlayerEntity;
 import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.skin.SkinManager.GameProfileData;
 import org.geysermc.geyser.text.GeyserLocale;
-import org.geysermc.mcprotocollib.protocol.data.game.item.component.DataComponentType;
-import org.geysermc.mcprotocollib.protocol.data.game.item.component.DataComponents;
+import org.geysermc.mcprotocollib.auth.GameProfile;
+import org.geysermc.mcprotocollib.auth.GameProfile.Texture;
+import org.geysermc.mcprotocollib.auth.GameProfile.TextureModel;
+import org.geysermc.mcprotocollib.auth.GameProfile.TextureType;
 
 import java.awt.*;
 import java.awt.image.BufferedImage;
@@ -106,18 +104,17 @@ public class FakeHeadProvider {
                 }
             });
 
-    public static void setHead(GeyserSession session, PlayerEntity entity, DataComponents components) {
-        GameProfile profile = components.get(DataComponentType.PROFILE);
-
+    public static void setHead(GeyserSession session, PlayerEntity entity, @Nullable GameProfile profile) {
         if (profile == null) {
             return;
         }
 
-        Map<TextureType, Texture> textures = null;
+        Map<TextureType, Texture> textures;
         try {
             textures = profile.getTextures(false);
-        } catch (PropertyException e) {
-            session.getGeyser().getLogger().debug("Failed to get textures from GameProfile: " + e);
+        } catch (IllegalStateException e) {
+            GeyserImpl.getInstance().getLogger().debug("Could not decode player head from profile %s, got: %s".formatted(profile, e.getMessage()));
+            textures = null;
         }
 
         if (textures == null || textures.isEmpty()) {

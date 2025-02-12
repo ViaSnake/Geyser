@@ -46,7 +46,7 @@ public class JavaMapItemDataTranslator extends PacketTranslator<ClientboundMapIt
         org.cloudburstmc.protocol.bedrock.packet.ClientboundMapItemDataPacket mapItemDataPacket = new org.cloudburstmc.protocol.bedrock.packet.ClientboundMapItemDataPacket();
 
         mapItemDataPacket.setUniqueMapId(packet.getMapId());
-        mapItemDataPacket.setDimensionId(DimensionUtils.javaToBedrock(session.getDimension()));
+        mapItemDataPacket.setDimensionId(DimensionUtils.javaToBedrock(session));
         mapItemDataPacket.setLocked(packet.isLocked());
         mapItemDataPacket.setOrigin(Vector3i.ZERO); // Required since 1.19.20
         mapItemDataPacket.setScale(packet.getScale());
@@ -65,7 +65,7 @@ public class JavaMapItemDataTranslator extends PacketTranslator<ClientboundMapIt
 
             int idx = 0;
             for (byte colorId : data.getData()) {
-                colors[idx++] = MapColor.fromId(colorId & 0xFF).getARGB();
+                colors[idx++] = MapColor.fromId(colorId & 0xFF).getABGR();
             }
 
             mapItemDataPacket.setColors(colors);

@@ -33,7 +33,8 @@ import org.cloudburstmc.nbt.NbtType;
 import org.cloudburstmc.protocol.bedrock.data.definitions.BlockDefinition;
 import org.cloudburstmc.protocol.bedrock.packet.UpdateBlockPacket;
 import org.geysermc.geyser.GeyserImpl;
-import org.geysermc.geyser.level.block.BlockStateValues;
+import org.geysermc.geyser.level.block.property.Properties;
+import org.geysermc.geyser.level.block.type.BlockState;
 import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.session.cache.SkullCache;
 import org.geysermc.geyser.skin.SkinProvider;
@@ -48,18 +49,14 @@ import java.util.concurrent.ExecutionException;
 
 @BlockEntity(type = BlockEntityType.SKULL)
 public class SkullBlockEntityTranslator extends BlockEntityTranslator implements RequiresBlockState {
-
     @Override
-    public void translateTag(GeyserSession session, NbtMapBuilder bedrockNbt, NbtMap javaNbt, int blockState) {
-        byte skullVariant = BlockStateValues.getSkullVariant(blockState);
-        float rotation = BlockStateValues.getSkullRotation(blockState) * 22.5f;
-        // Just in case...
-        if (skullVariant == -1) {
-            skullVariant = 0;
+    public void translateTag(GeyserSession session, NbtMapBuilder bedrockNbt, NbtMap javaNbt, BlockState blockState) {
+        Integer rotation = blockState.getValue(Properties.ROTATION_16);
+        if (rotation != null) {
+            // Could be a wall skull block otherwise, which has rotation in its Bedrock state
+            bedrockNbt.putFloat("Rotation", rotation * 22.5f);
         }
-        bedrockNbt.putFloat("Rotation", rotation);
-        bedrockNbt.putByte("SkullType", skullVariant);
-        if (BlockStateValues.isSkullPowered(blockState)) {
+        if (blockState.getValue(Properties.POWERED)) {
             bedrockNbt.putBoolean("MouthMoving", true);
         }
     }
@@ -101,7 +98,7 @@ public class SkullBlockEntityTranslator extends BlockEntityTranslator implements
         return CompletableFuture.completedFuture(texture);
     }
 
-    public static @Nullable BlockDefinition translateSkull(GeyserSession session, NbtMap javaNbt, Vector3i blockPosition, int blockState) {
+    public static @Nullable BlockDefinition translateSkull(GeyserSession session, NbtMap javaNbt, Vector3i blockPosition, BlockState blockState) {
         NbtMap profile = javaNbt.getCompound("profile");
         if (profile.isEmpty()) {
             session.getSkullCache().removeSkull(blockPosition);
@@ -134,18 +131,15 @@ public class SkullBlockEntityTranslator extends BlockEntityTranslator implements
                 session.getGeyser().getLogger().debug("Custom skull with invalid profile tag: " + blockPosition + " " + javaNbt);
                 return;
             }
-            if (session.getEventLoop().inEventLoop()) {
-                putSkull(session, blockPosition, uuid, texturesProperty, blockState);
-            } else {
-                session.executeInEventLoop(() -> putSkull(session, blockPosition, uuid, texturesProperty, blockState));
-            }
+
+            session.ensureInEventLoop(() -> putSkull(session, blockPosition, uuid, texturesProperty, blockState));
         });
 
         // We don't have the textures yet, so we can't determine if a custom block was defined for this skull
         return null;
     }
 
-    private static void putSkull(GeyserSession session, Vector3i blockPosition, UUID uuid, String texturesProperty, int blockState) {
+    private static void putSkull(GeyserSession session, Vector3i blockPosition, UUID uuid, String texturesProperty, BlockState blockState) {
         SkullCache.Skull skull = session.getSkullCache().putSkull(blockPosition, uuid, texturesProperty, blockState);
         if (skull.getBlockDefinition() != null) {
             UpdateBlockPacket updateBlockPacket = new UpdateBlockPacket();
